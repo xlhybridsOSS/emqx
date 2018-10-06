@@ -569,7 +569,7 @@ handle_info({dispatch, Topic, Msgs}, State) when is_list(Msgs) ->
 handle_info({dispatch, Topic, Msg = #message{headers = Headers}}, 
             State = #state{subscriptions = SubMap, topic_alias_maximum = TopicAliasMaximum}) when is_record(Msg, message) ->
     TopicAlias = maps:get('Topic-Alias', Headers, undefined),
-    if 
+    if
         TopicAlias =:= undefined orelse TopicAlias =< TopicAliasMaximum ->
             noreply(case maps:find(Topic, SubMap) of
                         {ok, #{nl := Nl, qos := QoS, rap := Rap, subid := SubId}} ->
