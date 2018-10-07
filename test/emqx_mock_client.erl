@@ -16,7 +16,8 @@
 
 -behaviour(gen_server).
 
--export([start_link/1, open_session/3, close_session/2, stop/1, get_last_message/1]).
+-export([start_link/1, open_session/3, open_session/4,
+         close_session/2, stop/1, get_last_message/1]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
@@ -27,7 +28,12 @@ start_link(ClientId) ->
     gen_server:start_link(?MODULE, [ClientId], []).
 
 open_session(ClientPid, ClientId, Zone) ->
-    gen_server:call(ClientPid, {start_session, ClientPid, ClientId, Zone}).
+    open_session(ClientPid, ClientId, Zone, _Attrs = #{}).
+
+open_session(ClientPid, ClientId, Zone, Attrs0) ->
+    Attrs1 = default_session_attributes(Zone, ClientId, ClientPid),
+    Attrs = maps:merge(Attrs1, Attrs0),
+    gen_server:call(ClientPid, {start_session, ClientPid, ClientId, Zone, Attrs}).
 
 close_session(ClientPid, SessPid) ->
     gen_server:call(ClientPid, {stop_session, SessPid}).
@@ -45,16 +51,7 @@ init([ClientId]) ->
                }
     }.
 
-handle_call({start_session, ClientPid, ClientId, Zone}, _From, State) ->
-    Attrs = #{ zone             => Zone,
-               client_id        => ClientId,
-               conn_pid         => ClientPid,
-               clean_start      => true,
-               username         => undefined,
-               expiry_interval  => 0,
-               max_inflight     => 0,
-               topic_alias_maximum => 0
-             },
+handle_call({start_session, ClientPid, ClientId, Zone, Attrs}, _From, State) ->
     {ok, SessPid} = emqx_sm:open_session(Attrs),
     {reply, {ok, SessPid},
      State#state{clean_start = true,
@@ -84,4 +81,15 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+default_session_attributes(Zone, ClientId, ClientPid) ->
+    #{zone                => Zone,
+      client_id           => ClientId,
+      conn_pid            => ClientPid,
+      clean_start         => true,
+      username            => undefined,
+      expiry_interval     => 0,
+      max_inflight        => 0,
+      topic_alias_maximum => 0
+     }.
 
