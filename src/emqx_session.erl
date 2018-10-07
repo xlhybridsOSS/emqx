@@ -568,21 +568,15 @@ handle_info({dispatch, Topic, Msgs}, State) when is_list(Msgs) ->
                           end, State, Msgs)};
 
 %% Dispatch message
-handle_info({dispatch, Topic, Msg = #message{headers = Headers}}, 
-            State = #state{subscriptions = SubMap, topic_alias_maximum = TopicAliasMaximum}) when is_record(Msg, message) ->
-    TopicAlias = maps:get('Topic-Alias', Headers, undefined),
-    if
-        TopicAlias =:= undefined orelse TopicAlias =< TopicAliasMaximum ->
-            noreply(case maps:find(Topic, SubMap) of
-                        {ok, #{nl := Nl, qos := QoS, rap := Rap, subid := SubId}} ->
-                            run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}, {subid, SubId}], Msg, State);
-                        {ok, #{nl := Nl, qos := QoS, rap := Rap}} ->
-                            run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}], Msg, State);
-                        error ->
-                            dispatch(emqx_message:unset_flag(dup, Msg), State)
-                    end);
+handle_info({dispatch, Topic, Msg = #message{}}, State) ->
+    case emqx_shared_sub:is_ack_required(Msg) andalso not has_connection(State) of
         true ->
-            noreply(State)
+            %% Require ack, but we do not have connection
+            %% negative ack the message so it can try the next subscriber in the group
+            ok = emqx_shared_sub:nack_no_connection(Msg),
+            noreply(State);
+        false ->
+            handle_dispatch(Topic, Msg, State)
     end;
 
 %% Do nothing if the client has been disconnected.
@@ -649,6 +643,27 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+has_connection(#state{conn_pid = Pid}) -> is_pid(Pid) andalso is_process_alive(Pid).
+
+handle_dispatch(Topic, Msg = #message{headers = Headers},
+                State = #state{subscriptions = SubMap,
+                               topic_alias_maximum = TopicAliasMaximum
+                              }) ->
+    TopicAlias = maps:get('Topic-Alias', Headers, undefined),
+    if
+        TopicAlias =:= undefined orelse TopicAlias =< TopicAliasMaximum ->
+            noreply(case maps:find(Topic, SubMap) of
+                        {ok, #{nl := Nl, qos := QoS, rap := Rap, subid := SubId}} ->
+                            run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}, {subid, SubId}], Msg, State);
+                        {ok, #{nl := Nl, qos := QoS, rap := Rap}} ->
+                            run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}], Msg, State);
+                        error ->
+                            dispatch(emqx_message:unset_flag(dup, Msg), State)
+                    end);
+        true ->
+            noreply(State)
+    end.
 
 suback(_From, undefined, _ReasonCodes) ->
     ignore;

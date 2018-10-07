@@ -132,7 +132,7 @@ in(Msg, MQ = #mqueue{type = simple, q = Q, len = Len, max_len = 0}) ->
 in(Msg, MQ = #mqueue{type = simple, q = Q, len = Len, max_len = MaxLen, dropped = Dropped})
     when Len >= MaxLen ->
     {{value, Drop}, Q2} = queue:out(Q),
-    _ = emqx_shared_sub:maybe_nack(Drop),
+    ok = emqx_shared_sub:maybe_nack_dropped(Drop),
     MQ#mqueue{q = queue:in(Msg, Q2), dropped = Dropped +1};
 in(Msg, MQ = #mqueue{type = simple, q = Q, len = Len}) ->
     MQ#mqueue{q = queue:in(Msg, Q), len = Len + 1};
@@ -155,7 +155,7 @@ in(Msg = #message{topic = Topic}, MQ = #mqueue{type = priority, q = Q,
             case ?PQUEUE:plen(Pri, Q) >= MaxLen of
                 true ->
                     {{value, Drop}, Q1} = ?PQUEUE:out(Pri, Q),
-                    _ = emqx_shared_sub:maybe_nack(Drop),
+                    ok = emqx_shared_sub:maybe_nack_dropped(Drop),
                     MQ#mqueue{q = ?PQUEUE:in(Msg, Pri, Q1)};
                 false ->
                     MQ#mqueue{q = ?PQUEUE:in(Msg, Pri, Q)}
